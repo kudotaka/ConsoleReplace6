@@ -200,18 +200,35 @@ public class ConsoleReplaceApp : ConsoleAppBase
         // copy type->target sheet
         foreach (var myDic in myListDicCells)
         {
-            var myCell_type = myDic[rackSelectSheetType];
-            var myCell_name = myDic[rackSelectSheetName];
-            var formatSheet = xlWorkbookExcel.Worksheet(myCell_type.value.ToString());
-            if (formatSheet == null || formatSheet.IsEmpty())
+            if (!myDic.ContainsKey(rackSelectSheetType))
             {
-                logger.ZLogError($"[ERROR] format worksheet is missing {myCell_type.value.ToString()}");
+                logger.ZLogError($"[ERROR] key({rackSelectSheetType}) is not Contains");
                 return;
             }
-            var replaceSheet = formatSheet.CopyTo(myCell_name.value.ToString());
+            if (!myDic.ContainsKey(rackSelectSheetName))
+            {
+                logger.ZLogError($"[ERROR] key({rackSelectSheetName}) is not Contains");
+                return;
+            }
+            var myCell_type = myDic[rackSelectSheetType];
+            var myCell_name = myDic[rackSelectSheetName];
+            string formatSheetName = myCell_type.value.ToString();
+            IXLWorksheet formatSheet;
+            if (!xlWorkbookExcel.TryGetWorksheet(formatSheetName, out formatSheet))
+            {
+                logger.ZLogError($"[ERROR] format worksheet is missing {formatSheetName}");
+                return;
+            }
+            if (myCell_name.value.IsBlank)
+            {
+                logger.ZLogError($"[ERROR] target worksheet name is Blank");
+                return;
+            }
+            string replaceSheetName = myCell_name.value.ToString();
+            var replaceSheet = formatSheet.CopyTo(replaceSheetName);
             if (replaceSheet == null || replaceSheet.IsEmpty())
             {
-                logger.ZLogError($"[ERROR] target worksheet is missing {myCell_name.value.ToString()}");
+                logger.ZLogError($"[ERROR] target worksheet is missing {replaceSheetName}");
                 return;
             }
 
@@ -219,7 +236,7 @@ public class ConsoleReplaceApp : ConsoleAppBase
             {
                 var myCell = myDic[key];
                 string replaceWord = myCell.key.ToString();
-//                logger.ZLogTrace($"key:{key} replaceWord:{replaceWord} type:{myCell.type}");
+                logger.ZLogTrace($"key:{key} replaceWord:{replaceWord} type:{myCell.type}");
 
                 IXLCells cells = replaceSheet.Search(replaceWord, System.Globalization.CompareOptions.IgnoreNonSpace, false);
                 if (cells == null || cells.Count<IXLCell>() == 0)
