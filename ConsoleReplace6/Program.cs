@@ -1,6 +1,8 @@
 ﻿using System.Text;
+using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using ConsoleAppFramework;
+using DocumentFormat.OpenXml.Bibliography;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -62,6 +64,7 @@ public class ConsoleReplaceApp : ConsoleAppBase
     readonly ILogger<ConsoleReplaceApp> logger;
     readonly IOptions<MyConfig> config;
 
+    private Dictionary<string, List<string>> myDicListWords = new Dictionary<string, List<string>>();
     private List<Dictionary<string, MyCell>> myListDicCells = new List<Dictionary<string, MyCell>>();
 
     public ConsoleReplaceApp(ILogger<ConsoleReplaceApp> logger, IOptions<MyConfig> config)
@@ -90,19 +93,137 @@ public class ConsoleReplaceApp : ConsoleAppBase
         logger.ZLogDebug($"RackSelectSheetType:{config.Value.RackSelectSheetType} RackSelectSheetName:{config.Value.RackSelectSheetName}");
 
 
+        readFormatFile(format, myDicListWords);
+        printDicWords(myDicListWords);
         readConfigFile(configpath, myListDicCells);
         printDicCells(myListDicCells);
 
         createExcelFile(myListDicCells, format, outpath);
 
+        checkExcelFile(outpath);
 
+        if (!isAllPass)
+        {
+            logger.ZLogError($"[ERROR] エラーがあるので、上から対処してください");
+        }
+        else
+        {
+            logger.ZLogInformation($"Congratulations!! 正常終了しました");
+        }
         //== finish
-        logger.ZLogInformation($"==== tool finish ====");
+            logger.ZLogInformation($"==== tool finish ====");
     }
 
+    private void checkExcelFile(string outpath)
+    {
+        logger.ZLogInformation($"== start checkExcelFile ==");
+        string pattern = @"##[^#]*##";
+        Regex regex = new Regex(pattern);
+        Dictionary<string, List<string>> tmpDic = new Dictionary<string, List<string>>();
+        FileStream fs = new FileStream(outpath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using XLWorkbook xlWorkbook = new XLWorkbook(fs);
+        foreach (var worksheet in xlWorkbook.Worksheets)
+        {
+            string worksheetName = worksheet.Name;
+            List<string> tmpWords = new List<string>();
+            IXLCells cells = worksheet.CellsUsed();
+            foreach (var cell in cells)
+            {
+                string value = cell.GetText();
+                MatchCollection matchs = regex.Matches(value);
+                if (matchs.Count < 1)
+                {
+                    continue;
+                }
+                foreach (Match match in matchs)
+                {
+                    string tmpValue = match.Value;
+                    if (!tmpWords.Contains(tmpValue))
+                    {
+                        tmpWords.Add(tmpValue);
+                    }
+                }
+            }
+            tmpDic.Add(worksheetName, tmpWords);
+        }
+
+        //check
+        foreach (var key in tmpDic.Keys)
+        {
+            if (tmpDic[key].Count > 0)
+            {
+                // error
+                int counter = 0;
+                StringBuilder sb = new StringBuilder();
+                foreach (var item in tmpDic[key])
+                {
+                    if (counter > 0)
+                    {
+                        sb.Append(",");
+                    }
+                    sb.AppendFormat("{0}", item);
+                    counter++;
+                }
+
+                logger.ZLogError($"[ERROR] シート名:{key} 該当キー:{sb.ToString()}");
+                isAllPass = false;
+            }
+            else
+            {
+                logger.ZLogInformation($"[OK] シート名:{key} キーは置換されて残っていません");
+            }
+        }
+        logger.ZLogInformation($"== end check excel file ==");
+    }
+
+    private void readFormatFile(string formatpath, Dictionary<string, List<string>> myDicListWords)
+    {
+        logger.ZLogInformation($"== start readFormatFile ==");
+        string pattern = @"##[^#]*##";
+        Regex regex = new Regex(pattern);
+        FileStream fs = new FileStream(formatpath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using XLWorkbook xlWorkbook = new XLWorkbook(fs);
+        foreach (var worksheet in xlWorkbook.Worksheets)
+        {
+            string worksheetName = worksheet.Name;
+            List<string> tmpWords = new List<string>();
+            IXLCells cells = worksheet.CellsUsed();
+            foreach (var cell in cells)
+            {
+                string value = cell.GetText();
+                MatchCollection matchs = regex.Matches(value);
+                if (matchs.Count < 1)
+                {
+                    continue;
+                }
+                foreach (Match match in matchs)
+                {
+                    string tmpValue = match.Value;
+                    if (!tmpWords.Contains(tmpValue))
+                    {
+                        tmpWords.Add(tmpValue);
+                    }
+                }
+            }
+            myDicListWords.Add(worksheetName, tmpWords);
+        }
+        logger.ZLogInformation($"== end readFormatFile ==");
+    }
+
+    private void printDicWords(Dictionary<string, List<string>> myDicListWords)
+    {
+        foreach (var key in myDicListWords.Keys)
+        {
+            foreach (var item in myDicListWords[key])
+            {
+                logger.ZLogTrace($"sheetName:{key} word:{item}");
+            }
+        }
+    }
 
     private void readConfigFile(string configpath, List<Dictionary<string, MyCell>> myListDicCells)
     {
+        logger.ZLogInformation($"== start readConfigFile ==");
         bool findTableName = false;
         FileStream fs = new FileStream(configpath, FileMode.Open, FileAccess.Read, FileShare.Read);
         using XLWorkbook xlWorkbook = new XLWorkbook(fs);
@@ -125,7 +246,7 @@ public class ConsoleReplaceApp : ConsoleAppBase
                     for (int column = columnFirst; column < columnMax; column++)
                     {
                         var cellHeader = table.Cell(1, column);
-//                        logger.ZLogTrace($"column:{column} row:{1} Value:{cellHeader.Value.ToString()} Type:{cellHeader.Value.Type.ToString()}");
+                        //                        logger.ZLogTrace($"column:{column} row:{1} Value:{cellHeader.Value.ToString()} Type:{cellHeader.Value.Type.ToString()}");
                         listHeaders.Add(cellHeader.Value.ToString());
                     }
                     // data
@@ -136,7 +257,7 @@ public class ConsoleReplaceApp : ConsoleAppBase
                         for (int column = columnFirst; column < columnMax; column++)
                         {
                             var cell = table.Cell(row, column);
-//                            logger.ZLogTrace($"column:{column} row:{row} Value:{cell.Value.ToString()} Type:{cell.Value.Type.ToString()}");
+                            //                            logger.ZLogTrace($"column:{column} row:{row} Value:{cell.Value.ToString()} Type:{cell.Value.Type.ToString()}");
                             var tmpCell = new MyCell();
                             tmpCell.key = listHeaders[i];
                             tmpCell.value = cell.Value;
@@ -160,6 +281,7 @@ public class ConsoleReplaceApp : ConsoleAppBase
             logger.ZLogError($"シート名( )が見つかりませんでした");
             throw new Exception($"[Error]シートの中にテーブル名( )が見つかりませんでした");
         }
+        logger.ZLogInformation($"== end readConfigFile ==");
     }
 
     private void printDicCells(List<Dictionary<string, MyCell>> myListDicCells)
@@ -170,7 +292,6 @@ public class ConsoleReplaceApp : ConsoleAppBase
             {
                 logger.ZLogTrace($"key:{key} value:{dic[key].value.ToString()} type:{dic[key].type.ToString()}");
             }
-            
         }
     }
 
@@ -241,7 +362,7 @@ public class ConsoleReplaceApp : ConsoleAppBase
                 IXLCells cells = replaceSheet.Search(replaceWord, System.Globalization.CompareOptions.IgnoreNonSpace, false);
                 if (cells == null || cells.Count<IXLCell>() == 0)
                 {
-                    logger.ZLogWarning($"[ERROR] Search result == NULL or 0");
+                    logger.ZLogWarning($"[ERROR] Search({replaceWord}) result == NULL or 0");
                     continue;
                 }
                 foreach (IXLCell? cell in cells)
@@ -252,7 +373,7 @@ public class ConsoleReplaceApp : ConsoleAppBase
                         string tmpString = cell.Value.ToString();
                         string newString = tmpString.Replace(replaceWord, targetWord);
                         cell.SetValue(newString);
-                        logger.ZLogTrace($"tmpString:{tmpString} replaceWord:{replaceWord} newString:{newString}");
+                        logger.ZLogTrace($"replaceWord:{replaceWord} tmpString:{tmpString} newString:{newString}");
                     }
                 }
             }
@@ -265,6 +386,7 @@ public class ConsoleReplaceApp : ConsoleAppBase
         }
 
         xlWorkbookExcel.Save();
+        logger.ZLogInformation($"== end createExcelFile ==");
     }
 
     private string getMyFileVersion()
